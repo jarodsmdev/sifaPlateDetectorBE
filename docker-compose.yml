@@ -1,0 +1,18 @@
+services:
+  plate-api:
+    build: .
+    container_name: license-plate-api
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - plate-network
+
+networks:
+  plate-network:
+    name: plate-network
+    driver: bridge

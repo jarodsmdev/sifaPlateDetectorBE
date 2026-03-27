@@ -1,0 +1,2 @@
+# Renombra este archivo a .env y edítalo con el nombre de tu modelo
+MODEL_NAME=yolo-v9-t-256-license-plate-end2end
