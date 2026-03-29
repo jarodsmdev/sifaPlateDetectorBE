@@ -38,7 +38,7 @@ Servicio en FastAPI para detectar patentes vehiculares en imágenes y extraer su
 docker compose up --build
 ```
 
-2. El servicio quedará disponible en:
+1. El servicio quedará disponible en:
 
 ```text
 http://localhost:8001/detect
@@ -59,16 +59,42 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-2. Instalar dependencias:
+1. Instalar dependencias:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Ejecutar API:
+1. Instalar Tesseract en el sistema operativo (esto NO lo instala `pip`):
+
+Fedora:
+
+```bash
+sudo dnf install -y tesseract
+```
+
+Debian/Ubuntu:
+
+```bash
+sudo apt-get update && sudo apt-get install -y tesseract-ocr
+```
+
+Verificar instalacion:
+
+```bash
+tesseract --version
+```
+
+1. Ejecutar API:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Si `tesseract` no esta en tu `PATH`, puedes definirlo manualmente:
+
+```bash
+export TESSERACT_CMD=/usr/bin/tesseract
 ```
 
 ## Uso del endpoint
@@ -84,30 +110,30 @@ Ejemplo con `curl`:
 
 ```bash
 curl -X POST "http://localhost:8001/detect" \
-	-H "accept: application/json" \
-	-H "Content-Type: multipart/form-data" \
-	-F "file=@/ruta/a/tu/imagen.jpg"
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/ruta/a/tu/imagen.jpg"
 ```
 
 Respuesta esperada (ejemplo):
 
 ```json
 {
-	"result": [
-		{
-			"plate": "ABCD12",
-			"success": true,
-			"status": "OK",
-			"confidence": 0.93,
-			"bbox": {
-				"x1": 100,
-				"y1": 220,
-				"x2": 280,
-				"y2": 300
-			}
-		}
-	],
-	"timestamp": "2026-03-27T12:34:56.000000Z"
+  "result": [
+    {
+      "plate": "ABCD12",
+      "success": true,
+      "status": "OK",
+      "confidence": 0.93,
+      "bbox": {
+        "x1": 100,
+        "y1": 220,
+        "x2": 280,
+        "y2": 300
+      }
+    }
+  ],
+  "timestamp": "2026-03-27T12:34:56.000000Z"
 }
 ```
 
@@ -125,4 +151,3 @@ Respuesta esperada (ejemplo):
 ## Datos de prueba
 
 Puedes guardar imágenes de prueba en la carpeta `data/` (montada en el contenedor) para probar rápidamente con `curl`.
-## 

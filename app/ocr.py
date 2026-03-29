@@ -2,6 +2,22 @@ import cv2
 import pytesseract
 import re
 import numpy as np
+import os
+import shutil
+import base64
+
+
+PLATE_CROP_PADDING = -5
+MIN_PLATE_LEN = 5
+MAX_PLATE_LEN = 6
+
+def _resolve_tesseract_cmd():
+    custom_cmd = os.getenv("TESSERACT_CMD")
+    if custom_cmd:
+        if os.path.isabs(custom_cmd):
+            return custom_cmd if os.path.isfile(custom_cmd) else None
+        return shutil.which(custom_cmd)
+    return shutil.which("tesseract")
 
 def clean(text):
     text = text.upper()
@@ -61,19 +77,78 @@ def perspective_correction(crop):
 def score(text):
     return sum(c.isalnum() for c in text)
 
-def read_plate(image_path, bbox):
-    img = cv2.imread(image_path)
-    if img is None:
-        return {"plate": "", "status": False, "message": "Imagen no cargada"}
+def _score_plate_candidate(candidate):
+    letters = sum(c.isalpha() for c in candidate)
+    digits = sum(c.isdigit() for c in candidate)
+    value = 0
 
+    if MIN_PLATE_LEN <= len(candidate) <= MAX_PLATE_LEN:
+        value += 10
+    if len(candidate) == MAX_PLATE_LEN:
+        value += 4
+    if letters > 0 and digits > 0:
+        value += 3
+
+    # Penaliza resultados con poca diversidad de caracteres (ruido OCR repetido)
+    value += len(set(candidate))
+    return value
+
+
+def _normalize_plate_candidate(text):
+    cleaned = clean(text)
+    if not cleaned:
+        return ""
+
+    if len(cleaned) <= MAX_PLATE_LEN:
+        return cleaned
+
+    windows = [cleaned[i:i + MAX_PLATE_LEN] for i in range(len(cleaned) - MAX_PLATE_LEN + 1)]
+    return max(windows, key=_score_plate_candidate)
+
+
+def _get_plate_crop(img, bbox, pad=PLATE_CROP_PADDING):
     h_img, w_img = img.shape[:2]
-    pad = 30
     x1 = max(0, bbox["x1"] - pad)
     y1 = max(0, bbox["y1"] - pad)
     x2 = min(w_img, bbox["x2"] + pad)
     y2 = min(h_img, bbox["y2"] + pad)
+    return img[y1:y2, x1:x2]
 
-    crop = img[y1:y2, x1:x2]
+
+def encode_plate_crop_base64(image_path, bbox):
+    img = cv2.imread(image_path)
+    if img is None:
+        return ""
+
+    crop = _get_plate_crop(img, bbox)
+    if crop.size == 0:
+        return ""
+
+    ok, buffer = cv2.imencode('.jpg', crop)
+    if not ok:
+        return ""
+
+    return base64.b64encode(buffer.tobytes()).decode('utf-8')
+
+def read_plate(image_path, bbox):
+    img = cv2.imread(image_path)
+    if img is None:
+        return {"plate": "", "success": False, "status": "Imagen no cargada"}
+
+    tesseract_cmd = _resolve_tesseract_cmd()
+    if not tesseract_cmd:
+        return {
+            "plate": "",
+            "success": False,
+            "status": "Tesseract no esta instalado o no esta en PATH. Instala el binario del sistema o define TESSERACT_CMD."
+        }
+
+    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+
+    crop = _get_plate_crop(img, bbox)
+    if crop.size == 0:
+        return {"plate": "", "success": False, "status": "Recorte de patente invalido"}
+
     warped = perspective_correction(crop)
 
     gray1 = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
@@ -90,18 +165,25 @@ def read_plate(image_path, bbox):
 
     candidates = []
     for img_variant in [thresh1, gray1, crop, thresh2, gray2, warped]:
-        text = pytesseract.image_to_string(img_variant, config=config)
-        text = re.sub(r'[^A-Z0-9]', '', text.upper())
+        try:
+            text = pytesseract.image_to_string(img_variant, config=config)
+        except pytesseract.pytesseract.TesseractNotFoundError:
+            return {
+                "plate": "",
+                "success": False,
+                "status": "No se pudo ejecutar Tesseract. Verifica instalacion del sistema y variable TESSERACT_CMD."
+            }
+        text = _normalize_plate_candidate(text)
         candidates.append(text)
 
-    valid = [t for t in candidates if 5 <= len(t) <= 8]
+    valid = [t for t in candidates if MIN_PLATE_LEN <= len(t) <= MAX_PLATE_LEN]
 
     def is_better(a, b):
         if len(a) == 6 and len(b) != 6:
             return True
         if len(b) == 6 and len(a) != 6:
             return False
-        return sum(c.isalnum() for c in a) > sum(c.isalnum() for c in b)
+        return _score_plate_candidate(a) > _score_plate_candidate(b)
 
     final_text = ""
     for candidate in valid:
@@ -111,8 +193,11 @@ def read_plate(image_path, bbox):
             final_text = candidate
 
     # filtros
-    if len(final_text) < 5:
+    if len(final_text) < MIN_PLATE_LEN:
         return {"plate": "", "success": False, "status": "La detección OCR no es confiable"}
+
+    if len(final_text) > MAX_PLATE_LEN:
+        final_text = final_text[:MAX_PLATE_LEN]
 
     if len(set(final_text)) <= 2:
         return {"plate": "", "success": False, "status": "OCR ha fallado"}

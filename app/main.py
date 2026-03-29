@@ -1,14 +1,25 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import uuid
 import os
 from datetime import datetime
 from app.model import detect_plate
-from app.ocr import read_plate
+from app.ocr import read_plate, encode_plate_crop_base64
 
 app = FastAPI()
 
-UPLOAD_DIR = "/temp/uploads"
+LOCAL_DEV_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=LOCAL_DEV_ORIGIN_REGEX,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Validación de tamaño (máximo 5MB)
@@ -43,13 +54,15 @@ async def detect(file: UploadFile = File(...)):
             "y2": int(det.bounding_box.y2),
         }
 
+        image_base64 = encode_plate_crop_base64(file_path, bbox)
         plate_result = read_plate(file_path, bbox)
         output.append({
             "plate": plate_result["plate"],
             "success": plate_result["success"],
             "status": plate_result["status"],
             "confidence": float(det.confidence),
-            "bbox": bbox
+            "bbox": bbox,
+            "image": image_base64
         })
 
     os.remove(file_path)
