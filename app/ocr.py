@@ -10,6 +10,10 @@ PLATE_CROP_PADDING = -5
 MIN_PLATE_LEN = 5
 MAX_PLATE_LEN = 6
 
+#formato nuevo o antiguo de la patente
+CHILE_PLATE_PATTERN = re.compile(r'^([A-Z]{2}[0-9]{4}|[B-DF-HJ-NP-TV-Z]{4}[0-9]{2})$')
+
+
 def _resolve_tesseract_cmd():
     custom_cmd = os.getenv("TESSERACT_CMD")
     if custom_cmd:
@@ -145,15 +149,20 @@ def read_plate(image_path, bbox):
     if crop.size == 0:
         return {"plate": "", "success": False, "status": "Recorte de patente inválido"}
 
-    deskewed = deskew(crop)
-    warped = perspective_correction(deskewed)
+    deskewed = deskew(crop) # Arregla si la foto está un poco inclinada (ej: 5 o 10 grados)
+    warped = perspective_correction(deskewed) # Arregla si la foto se tomó desde un costado (diagonal)
 
+    variants = [crop, deskewed, warped]
+    '''
     variants = [crop, deskewed, warped,
                 cv2.rotate(deskewed, cv2.ROTATE_90_CLOCKWISE),
                 cv2.rotate(deskewed, cv2.ROTATE_90_COUNTERCLOCKWISE)]
+    '''
 
     candidates = []
-    psm_options = [6, 7, 8]
+
+    # la opcion 6 suele fallar o ser lento
+    psm_options = [7, 8]
     for img_variant in variants:
         processed_imgs = preprocess_for_ocr(img_variant)
         for processed in processed_imgs:
@@ -161,6 +170,12 @@ def read_plate(image_path, bbox):
                 config = f'--oem 3 --psm {psm} -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
                 text = pytesseract.image_to_string(processed, config=config)
                 text = _normalize_plate_candidate(text)
+                
+                # Plan A: Early Stopping si lee la patente chilena perfecta
+                if text and CHILE_PLATE_PATTERN.match(text):
+                    return {"plate": text, "success": True, "status": "OK"} 
+                
+                # Plan B: Guardar lo que leyó por si ninguna variante logra la perfección
                 if text:
                     candidates.append(text)
 
