@@ -13,6 +13,34 @@ MAX_PLATE_LEN = 6
 #formato nuevo o antiguo de la patente
 CHILE_PLATE_PATTERN = re.compile(r'^([A-Z]{2}[0-9]{4}|[B-DF-HJ-NP-TV-Z]{4}[0-9]{2})$')
 
+def correct_common_mistakes(text):
+    if len(text) != 6:
+        return text
+    
+    letter_to_number = {'O': '0', 'I': '1', 'A': '1', 'Z': '2', 'S': '5', 'B': '8', 'G': '6', 'T': '7'}
+    number_to_letter = {'0': 'O', '1': 'I', '2': 'Z', '5': 'S', '8': 'B', '6': 'G', '7': 'T'}
+    
+    corrected = list(text)
+    
+    # Regla Formato Nuevo: 4 letras, 2 números (Ej: TZPW11)
+    if corrected[0].isalpha() and corrected[1].isalpha() and corrected[2].isalpha():
+        for i in [4, 5]: # Los dos últimos DEBEN ser números
+            if corrected[i].isalpha() and corrected[i] in letter_to_number:
+                corrected[i] = letter_to_number[corrected[i]]
+        for i in [0, 1, 2, 3]: # Los 4 primeros DEBEN ser letras
+            if corrected[i].isdigit() and corrected[i] in number_to_letter:
+                corrected[i] = number_to_letter[corrected[i]]
+                
+    # Regla Formato Antiguo: 2 letras, 4 números (Ej: BKJY33)
+    elif corrected[0].isalpha() and corrected[1].isalpha() and corrected[2].isdigit():
+        for i in [2, 3, 4, 5]: # Los últimos 4 DEBEN ser números
+            if corrected[i].isalpha() and corrected[i] in letter_to_number:
+                corrected[i] = letter_to_number[corrected[i]]
+        for i in [0, 1]: # Las primeras 2 DEBEN ser letras
+            if corrected[i].isdigit() and corrected[i] in number_to_letter:
+                corrected[i] = number_to_letter[corrected[i]]
+
+    return "".join(corrected)
 
 def _resolve_tesseract_cmd():
     custom_cmd = os.getenv("TESSERACT_CMD")
@@ -177,6 +205,7 @@ def read_plate(image_path, bbox):
                 
                 # Plan B: Guardar lo que leyó por si ninguna variante logra la perfección
                 if text:
+                    text = correct_common_mistakes(text)
                     candidates.append(text)
 
     valid = [t for t in candidates if MIN_PLATE_LEN <= len(t) <= MAX_PLATE_LEN]
