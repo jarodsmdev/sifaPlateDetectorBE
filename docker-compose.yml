@@ -6,6 +6,7 @@ services:
       - "8001:8000"
     volumes:
       - ./data:/data
+      - ./paddle_cache:/root/.paddleocr
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped

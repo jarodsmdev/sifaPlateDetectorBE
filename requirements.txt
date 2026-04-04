@@ -3,6 +3,6 @@ uvicorn[standard]
 python-multipart
 open-image-models[onnx]
 opencv-python-headless
-numpy
-paddlepaddle==2.6.0
+numpy<2.0.0
+paddlepaddle==2.6.2
 paddleocr==2.7.3
