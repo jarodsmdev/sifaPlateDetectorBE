@@ -80,13 +80,13 @@ async def detect(file: UploadFile = File(...)):
         plate_result = read_plate(file_path, bbox)
 
         # Estructurar la respuesta
+        # se quitó el campo "image" de la respuesta ya que toma mucho tiempo para enviar por la red
         output.append({
             "plate": plate_result["plate"],
             "success": plate_result["success"],
             "status": plate_result["status"],
             "confidence": float(det.confidence),
             "bbox": bbox,
-            "image": image_base64
         })
 
     # Limpieza: Eliminar la foto del servidor para no llenar el disco
