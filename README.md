@@ -26,8 +26,7 @@ Servicio en FastAPI para detectar patentes vehiculares en imágenes y extraer su
 
 ### Opción local (sin Docker)
 
-- Python 3.10+
-- `tesseract-ocr` instalado en el sistema
+- Python 3.10
 - Dependencias de Python (`requirements.txt`)
 
 ## Levantar con Docker (recomendado)
@@ -41,7 +40,7 @@ docker compose up --build
 1. El servicio quedará disponible en:
 
 ```text
-http://localhost:8001/detect
+http://localhost:8001/api/v1/plate/detect
 ```
 
 Para detener:
@@ -55,7 +54,7 @@ docker compose down
 1. Crear y activar entorno virtual:
 
 ```bash
-python3 -m venv .venv
+python3.10 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -63,14 +62,6 @@ source .venv/bin/activate
 
 ```bash
 pip install -r requirements.txt
-```
-
-1. Instalar Tesseract en el sistema operativo (esto NO lo instala `pip`):
-
-Fedora:
-
-```bash
-sudo dnf install -y tesseract
 ```
 
 Debian/Ubuntu:
@@ -81,25 +72,15 @@ sudo apt-get update && sudo apt-get install -y tesseract-ocr
 
 Verificar instalacion:
 
-```bash
-tesseract --version
-```
-
-1. Ejecutar API:
+1. Ejecutar API en local:
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-Si `tesseract` no esta en tu `PATH`, puedes definirlo manualmente:
-
-```bash
-export TESSERACT_CMD=/usr/bin/tesseract
+uvicorn app.main:app --reload --port 8001
 ```
 
 ## Uso del endpoint
 
-### `POST /detect`
+### `POST /api/v1/plate/detect`
 
 Recibe una imagen (`jpg` o `png`) como `multipart/form-data`.
 

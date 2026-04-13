@@ -15,7 +15,14 @@ from paddleocr import PaddleOCR
 # Silenciamos los logs de depuración nativos de Paddle y cargamos el modelo.
 # Se inicializa fuera de las funciones para que FastAPI lo mantenga en RAM.
 logging.getLogger("ppocr").setLevel(logging.ERROR)
-ocr = PaddleOCR(use_angle_cls=False, lang='en', show_log=False)
+ocr = PaddleOCR(
+    use_angle_cls=False,
+    lang='en',
+    show_log=False
+    #det_model_dir="/tmp/paddleocr/det",
+    #rec_model_dir="/tmp/paddleocr/rec",
+    #cls_model_dir="/tmp/paddleocr/cls"
+    )
 
 # Configuración de márgenes y tamaños
 PLATE_CROP_PADDING = -5

@@ -6,9 +6,10 @@ services:
       - "8001:8000"
     volumes:
       - ./data:/data
-      - ./paddle_cache:/root/.paddleocr
+      - ./paddle_cache:/tmp/paddleocr
     environment:
       - PYTHONUNBUFFERED=1
+      - PADDLEOCR_HOME=/tmp/paddleocr
     restart: unless-stopped
     networks:
       - plate-network
