@@ -3,10 +3,11 @@ services:
     build: .
     container_name: license-plate-api
     ports:
-      - "8001:8000"
+      - "8000:8000"
     volumes:
       - ./data:/data
       - ./paddle_cache:/root/.paddleocr
+      - ./yolo_cache:/root/.cache/open-image-models
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped

@@ -27,7 +27,7 @@ app.add_middleware(
 )
 
 # Configuración del almacenamiento temporal
-UPLOAD_DIR = "/tmp/uploads"
+UPLOAD_DIR = "/data/imagenes_recibidas"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Validación de seguridad: límite de 5MB por foto para no saturar la RAM
@@ -45,8 +45,11 @@ async def detect(file: UploadFile = File(...)):
     5. Devuelve los resultados estructurados y elimina el archivo temporal.
     """
 
-    # Generar un nombre único para evitar colisiones si hay peticiones simultáneas
-    filename = f"{uuid.uuid4()}.jpg"
+    # Generar un nombre único con fecha y hora para ordenar fácilmente el historial de fotos
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    random_id = uuid.uuid4().hex[:6]
+    filename = f"patente_{timestamp_str}_{random_id}.jpg"
+    
     file_path = os.path.join(UPLOAD_DIR, filename)
 
     # Validación de formato
@@ -90,7 +93,7 @@ async def detect(file: UploadFile = File(...)):
         })
 
     # Limpieza: Eliminar la foto del servidor para no llenar el disco
-    os.remove(file_path)
+    # os.remove(file_path)
 
     # Agregar marca de tiempo en formato ISO 8601 (estándar UTC)
     timestamp = datetime.utcnow().isoformat() + "Z"  # UTC en ISO 8601
