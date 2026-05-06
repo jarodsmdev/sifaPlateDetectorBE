@@ -1,7 +1,7 @@
 services:
   plate-api:
     build: .
-    container_name: license-plate-api
+    container_name: plate-api
     ports:
       - "8000:8000"
     volumes:
@@ -12,9 +12,8 @@ services:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     networks:
-      - plate-network
+      - sifa-network # Usar red externa
 
 networks:
-  plate-network:
-    name: plate-network
-    driver: bridge
+  sifa-network:
+    external: true #  Indicar que es externa
