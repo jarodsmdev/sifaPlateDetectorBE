@@ -33,7 +33,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Validación de seguridad: límite de 5MB por foto para no saturar la RAM
 MAX_FILE_SIZE = 5 * 1024 * 1024
 
-@app.post("/detect")
+@app.post("/plate/api/v1/detect")
 async def detect(file: UploadFile = File(...)):
     """
     Endpoint principal para detectar y leer patentes.
