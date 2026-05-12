@@ -113,6 +113,8 @@ def read_plate(image_path, bbox):
     Returns:
         dict: Diccionario con la patente limpia, el estado de éxito y un mensaje.
     """
+
+    # Ejecuta el OCR sobre el área específica de la patente
     img = cv2.imread(image_path)
     if img is None:
         return {"plate": "", "success": False, "status": "Imagen no cargada"}
@@ -122,7 +124,9 @@ def read_plate(image_path, bbox):
         return {"plate": "", "success": False, "status": "Recorte de patente inválido"}
 
     # Ejecutamos el modelo PaddleOCR directamente sobre el recorte a color
-    result = ocr.ocr(crop, cls=False)
+    # Al agregar det=False le decimos a al modelo PaddleOCR que no busque donde está el texto
+    # ya que este se entrega con el recorte que realiza yolo.
+    result = ocr.ocr(crop, det=False, cls=False)
 
     if not result or not result[0]:
         return {"plate": "", "success": False, "status": "OCR ha fallado"}
@@ -131,7 +135,7 @@ def read_plate(image_path, bbox):
 
     # Iterar sobre todas las líneas de texto que el OCR logró encontrar en el recorte
     for line in result[0]:
-        text_detected = line[1][0] # Extraemos solo el string
+        text_detected = line[0] # Extraemos el texto directamente de la primera posición
         cleaned_text = clean(text_detected)
         
         if not cleaned_text:

@@ -4,6 +4,8 @@ Coordina la recepción de imágenes, la validación, la detección del modelo YO
 y la extracción de texto mediante PaddleOCR.
 """
 
+import asyncio
+import cv2
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
@@ -65,8 +67,23 @@ async def detect(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         buffer.write(contents)
 
-    # Procesar detecciones (obtener coordenadas con YOLO)
-    detections = detect_plate(file_path)
+    img = cv2.imread(file_path)
+
+    # Obtener dimensiones originales
+    alto, ancho = img.shape[:2]
+
+    # Si la imagen es más grande que FullHD, la achicamos manteniendo la proporción
+    if ancho > 1920 or alto > 1080:
+        escala = min(1920/ancho, 1080/alto)
+        nuevo_ancho = int(ancho * escala)
+        nuevo_alto = int(alto * escala)
+        img_reducida = cv2.resize(img, (nuevo_ancho, nuevo_alto), interpolation=cv2.INTER_AREA)
+        cv2.imwrite(file_path, img_reducida) # Sobrescribir con la versión ligera
+
+    # Procesar detecciones (obtener coordenadas con YOLO) 
+    # FastAPI atiende la petición, pero manda el trabajo 
+    # matemático pesado a otro hilo, quedando libre para recibir al segundo fiscalizador al instante.
+    detections = await asyncio.to_thread(detect_plate, file_path)
     output = []
 
     # Iterar sobre cada patente encontrada en la foto (pueden ser varias)
