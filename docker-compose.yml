@@ -10,6 +10,10 @@ services:
       - ./yolo_cache:/root/.cache/open-image-models
     environment:
       - PYTHONUNBUFFERED=1
+      # Límites de concurrencia para evitar estrangular la CPU en la instancia EC2
+      - OMP_NUM_THREADS=2
+      - OPENBLAS_NUM_THREADS=2
+      - MKL_NUM_THREADS=2
     restart: unless-stopped
     networks:
       - sifa-network # Usar red externa
