@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List
+from datetime import datetime
 
 class BBoxSchema(BaseModel):
     """Esquema que define las coordenadas del recuadro delimitador de la patente."""
@@ -19,4 +20,4 @@ class DetectionItemSchema(BaseModel):
 class PlateDetectionResponseSchema(BaseModel):
     """Esquema global de respuesta para el endpoint de detección."""
     result: List[DetectionItemSchema] = Field(..., description="Colección indexada con todas las patentes identificadas")
-    timestamp: str = Field(..., description="Marca de tiempo en formato ISO 8601 UTC", example="2026-06-10T14:35:22.094321Z")
+    timestamp: datetime = Field(..., description="Marca de tiempo en formato ISO 8601 UTC", example="2026-06-10T14:35:22.094321Z")

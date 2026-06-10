@@ -55,13 +55,34 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
     summary="Procesar captura multimedia y extraer caracteres alfanuméricos",
     tags=["Procesamiento de Visión Artificial"],
     responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Token inválido o expirado."},
         status.HTTP_400_BAD_REQUEST: {"description": "Formato de archivo inválido. Solo JPG/PNG."},
         status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {"description": "El archivo excede el límite estructural de 5MB."},
-        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Fallo crítico interno en el motor OCR o IA."}
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Error de validación: el campo 'file' no fue enviado o la petición no es multipart/form-data."}
+    },
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "Fotografía capturada por el fiscalizador (JPG/PNG)"
+                            }
+                        },
+                        "required": ["file"]
+                    }
+                }
+            },
+            "required": True
+        }
     }
 )
 async def detect(
-    file: UploadFile = File(..., description="Fotografía capturada por el fiscalizador (JPG/PNG)"), 
+    file: UploadFile = File(...),
     token: HTTPAuthorizationCredentials = Depends(bearer_scheme)
     ):
     """
