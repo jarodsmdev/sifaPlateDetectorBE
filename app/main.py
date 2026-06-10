@@ -6,7 +6,8 @@ y la extracción de texto mediante PaddleOCR.
 
 import asyncio
 import cv2
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import uuid
@@ -29,6 +30,11 @@ app = FastAPI(
     version=API_VERSION,
     description=API_DESCRIPTION,
     servers=API_SERVERS
+)
+
+# Definición del esquema de seguridad para Swagger UI
+bearer_scheme = HTTPBearer(
+    description="Ingresa el Token JWT válido emitido por el servicio de Autenticación para interactuar con el modelo de IA."
 )
 
 # Configuración de CORS
@@ -54,7 +60,10 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Fallo crítico interno en el motor OCR o IA."}
     }
 )
-async def detect(file: UploadFile = File(..., description="Fotografía capturada por el fiscalizador (JPG/PNG)"))):
+async def detect(
+    file: UploadFile = File(..., description="Fotografía capturada por el fiscalizador (JPG/PNG)"), 
+    token: HTTPAuthorizationCredentials = Depends(bearer_scheme)
+    ):
     """
     Endpoint principal para detectar y leer patentes.
     

@@ -1,7 +1,7 @@
 import os
 
 # Capturamos la URL del API Gateway perimetral
-GATEWAY_URL = os.getenv("GATEWAY_PUBLIC_URL", "http://localhost:9000")
+GATEWAY_URL = "http://" + os.getenv("EC2_HOST", "localhost:9000")
 
 # Metadatos globales para Swagger UI
 API_TITLE = "Módulo de Reconocimiento de Patentes (Plate Detector) - SIFA"
