@@ -6,7 +6,8 @@ y la extracción de texto mediante PaddleOCR.
 
 import asyncio
 import cv2
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import uuid
@@ -15,11 +16,28 @@ from datetime import datetime
 from app.model import detect_plate
 from app.ocr import read_plate, encode_plate_crop_base64
 
-app = FastAPI()
+# Importaciones de configuración y esquemas extraídos
+from app.config import (
+    API_TITLE, API_VERSION, API_DESCRIPTION, API_SERVERS, 
+    LOCAL_DEV_ORIGIN_REGEX, UPLOAD_DIR, MAX_FILE_SIZE
+)
+from app.schemas import PlateDetectionResponseSchema
 
-# Configuración de CORS para permitir peticiones desde el emulador Android o localhost
-LOCAL_DEV_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
+# Inicialización de la aplicación utilizando la configuración externa
+app = FastAPI(
+    title=API_TITLE,
+    version=API_VERSION,
+    description=API_DESCRIPTION,
+    servers=API_SERVERS
+)
+
+# Definición del esquema de seguridad para Swagger UI
+bearer_scheme = HTTPBearer(
+    description="Ingresa el Token JWT válido emitido por el servicio de Autenticación para interactuar con el modelo de IA."
+)
+
+# Configuración de CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=LOCAL_DEV_ORIGIN_REGEX,
@@ -28,15 +46,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuración del almacenamiento temporal
-UPLOAD_DIR = "/data/imagenes_recibidas"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Validación de seguridad: límite de 5MB por foto para no saturar la RAM
-MAX_FILE_SIZE = 5 * 1024 * 1024
-
-@app.post("/plate/api/v1/detect")
-async def detect(file: UploadFile = File(...)):
+@app.post(
+    "/plate/api/v1/detect",
+    response_model=PlateDetectionResponseSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Procesar captura multimedia y extraer caracteres alfanuméricos",
+    tags=["Procesamiento de Visión Artificial"],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Formato de archivo inválido. Solo JPG/PNG."},
+        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {"description": "El archivo excede el límite estructural de 5MB."},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Fallo crítico interno en el motor OCR o IA."}
+    }
+)
+async def detect(
+    file: UploadFile = File(..., description="Fotografía capturada por el fiscalizador (JPG/PNG)"), 
+    token: HTTPAuthorizationCredentials = Depends(bearer_scheme)
+    ):
     """
     Endpoint principal para detectar y leer patentes.
     
