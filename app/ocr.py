@@ -89,9 +89,8 @@ def _get_plate_crop(img, bbox, pad=PLATE_CROP_PADDING):
     y2 = min(h_img, bbox["y2"] + pad)
     return img[y1:y2, x1:x2]
 
-def encode_plate_crop_base64(image_path, bbox):
+def encode_plate_crop_base64(img, bbox):
     """Recorta la patente y la convierte a un string Base64 para enviarla al Frontend."""
-    img = cv2.imread(image_path)
     if img is None:
         return ""
     crop = _get_plate_crop(img, bbox)
@@ -102,12 +101,12 @@ def encode_plate_crop_base64(image_path, bbox):
         return ""
     return base64.b64encode(buffer.tobytes()).decode('utf-8')
 
-def read_plate(image_path, bbox):
+def read_plate(img, bbox):
     """
     Ejecuta el OCR sobre el área específica de la patente.
     
     Args:
-        image_path (str): Ruta de la imagen completa.
+        img (numpy.ndarray): Imagen en memoria (OpenCV).
         bbox (dict): Coordenadas de la patente.
         
     Returns:
@@ -115,7 +114,6 @@ def read_plate(image_path, bbox):
     """
 
     # Ejecuta el OCR sobre el área específica de la patente
-    img = cv2.imread(image_path)
     if img is None:
         return {"plate": "", "success": False, "status": "Imagen no cargada"}
 
