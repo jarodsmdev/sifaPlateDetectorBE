@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from app.services import process_image_pipeline
 
 # Configuración de logging: Usamos el logger de uvicorn para que nuestros
@@ -64,8 +64,8 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
         status.HTTP_401_UNAUTHORIZED: {"description": "Token inválido o expirado."},
         status.HTTP_400_BAD_REQUEST: {"description": "Formato de archivo inválido. Solo JPG/PNG."},
         status.HTTP_408_REQUEST_TIMEOUT: {"description": "El procesamiento excedió el tiempo máximo permitido (5 segundos)."},
-        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {"description": "El archivo excede el límite estructural de 5MB."},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Error de validación: el campo 'file' no fue enviado o la petición no es multipart/form-data."}
+        status.HTTP_413_CONTENT_TOO_LARGE: {"description": "El archivo excede el límite estructural de 5MB."},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Error de validación: el campo 'file' no fue enviado o la petición no es multipart/form-data."}
     },
     openapi_extra={
         "requestBody": {
@@ -156,6 +156,6 @@ async def detect(
                 pass # Evitar que falle silenciosamente si el archivo estaba bloqueado
 
     # Agregar marca de tiempo en formato ISO 8601 (estándar UTC)
-    timestamp = datetime.utcnow().isoformat() + "Z"  # UTC en ISO 8601
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")  # UTC en ISO 8601
 
     return {"result": output, "timestamp": timestamp}
