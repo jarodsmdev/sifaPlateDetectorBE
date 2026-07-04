@@ -150,4 +150,59 @@ Respuesta esperada (ejemplo):
 
 ## Datos de prueba
 
-Puedes guardar imágenes de prueba en la carpeta `data/` (montada en el contenedor) para probar rápidamente con `curl`.
+Puedes guardar imágenes de prueba en la carpeta `data/` para evaluarlas o probar rápidamente con `curl`.
+
+---
+
+## Pruebas y Evaluación de Métricas
+
+El proyecto cuenta con un entorno de pruebas unitarias (`pytest`) y un módulo de evaluación de métricas de precisión de la IA para presentar estadísticas en tiempo real.
+
+### Preparación del entorno local (Desde Cero)
+Antes de ejecutar cualquier prueba o script en tu máquina local, debes preparar tu entorno de desarrollo siguiendo estos pasos:
+
+```bash
+# 1. Crear el entorno virtual (si no lo has creado antes)
+python -m venv .venv
+
+# 2. Activar el entorno virtual
+# En Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+# En Linux/macOS o Git Bash:
+# source .venv/bin/activate
+
+# 3. Instalar las dependencias principales de la aplicación (Modelos de IA, YOLO, PaddleOCR, OpenCV, etc.)
+pip install -r requirements.txt
+
+# 4. Instalar las dependencias adicionales para las pruebas y la evaluación de métricas
+pip install pytest pytest-cov httpx pillow
+```
+
+
+### 1. Pruebas Unitarias y Cobertura (`pytest`)
+Ejecuta las pruebas unitarias automáticas (las cuales utilizan *mocks* para no requerir la descarga de los modelos pesados de IA y correr en milisegundos):
+```bash
+pytest
+```
+* **Ver reporte de cobertura**: Puedes abrir el reporte interactivo HTML generado en `htmlcov/index.html`. En Windows PowerShell puedes abrirlo ejecutando:
+  ```powershell
+  Start-Process "htmlcov/index.html"
+  ```
+
+### 2. Módulo de Evaluación de Precisión de la IA (Métricas)
+Este script procesa todas las imágenes en la carpeta `data/` utilizando los modelos de IA locales reales (YOLOv9 y PaddleOCR). Mide la exactitud de lectura y calcula estadísticas detalladas sobre los tiempos de respuesta del servidor (Media, Mediana y Moda).
+
+> [!IMPORTANT]
+> Para calcular la precisión del OCR, debes nombrar las imágenes dentro de `data/` con su patente real (ej: `ABCD12.jpg` o `ABCD12_auto.png`). Las imágenes con nombres genéricos se omitirán del cálculo de precisión.
+
+Para iniciar la evaluación:
+```bash
+python test/test_precision.py
+```
+
+### 3. Pruebas de Carga y Simulación de Estrés
+Para simular peticiones simultáneas y paralelas de múltiples fiscalizadores interactuando con la API local:
+```bash
+# Recuerda levantar primero el servidor local (ej: uvicorn app.main:app)
+python test/test_carga.py
+```
