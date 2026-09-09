@@ -1,4 +1,9 @@
 import os
+from dotenv import load_dotenv
+
+# Cargar variables de entorno desde archivo .env (útil para desarrollo local)
+# En producción, las variables se inyectan vía docker run -e o variables del sistema
+load_dotenv()
 
 # Capturamos la URL del API Gateway perimetral
 GATEWAY_URL = "http://" + os.getenv("EC2_HOST", "localhost:9000")

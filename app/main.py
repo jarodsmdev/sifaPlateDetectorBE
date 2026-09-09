@@ -9,7 +9,6 @@ import cv2
 import time
 import logging
 from fastapi import FastAPI, UploadFile, File, HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import uuid
@@ -29,6 +28,9 @@ from app.config import (
 )
 from app.schemas import PlateDetectionResponseSchema
 
+# Importar dependencia de autenticación y autorización por rol
+from app.auth import require_role
+
 
 # Inicialización de la aplicación utilizando la configuración externa
 app = FastAPI(
@@ -36,11 +38,6 @@ app = FastAPI(
     version=API_VERSION,
     description=API_DESCRIPTION,
     servers=API_SERVERS
-)
-
-# Definición del esquema de seguridad para Swagger UI
-bearer_scheme = HTTPBearer(
-    description="Ingresa el Token JWT válido emitido por el servicio de Autenticación para interactuar con el modelo de IA."
 )
 
 # Configuración de CORS
@@ -90,7 +87,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 )
 async def detect(
     file: UploadFile = File(...),
-    token: HTTPAuthorizationCredentials = Depends(bearer_scheme)
+    user: dict = Depends(require_role("USER_APP"))
     ):
     """
     Endpoint principal para detectar y leer patentes.

@@ -6,6 +6,9 @@ import atexit
 import shutil
 from unittest.mock import MagicMock
 
+import jwt
+import pytest
+
 # Asegurar que el directorio raíz del proyecto esté en sys.path
 # para poder importar los módulos de la aplicación (app.config, etc.).
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +31,8 @@ sys.modules["open_image_models"].LicensePlateDetector = MagicMock()
 
 # ──────────────────────────────────────────────
 # 2. Redirigir UPLOAD_DIR a un directorio temporal
+#    IMPORTANTE: Esto debe ejecutarse ANTES de importar app.main,
+#    ya que app.main ejecuta os.makedirs(UPLOAD_DIR) a nivel de módulo.
 # ──────────────────────────────────────────────
 import app.config  # noqa: E402
 
@@ -40,6 +45,56 @@ app.config.UPLOAD_DIR = _UPLOAD_TMP
 # ──────────────────────────────────────────────
 sys.modules["app.model"] = MagicMock()
 sys.modules["app.ocr"] = MagicMock()
+
+# ──────────────────────────────────────────────
+# 4. Importar app.main DESPUÉS de configurar UPLOAD_DIR y mocks.
+# ──────────────────────────────────────────────
+from app.main import app  # noqa: E402
+from app.auth import get_current_user  # noqa: E402
+
+# ──────────────────────────────────────────────
+# 5. Configuración de JWT para tests
+# ──────────────────────────────────────────────
+TEST_JWT_SECRET = "test-secret-key-for-unit-tests"
+TEST_JWT_ISSUER = "sifa-auth"
+TEST_JWT_AUDIENCE = "sifa-clients"
+
+
+@pytest.fixture
+def mock_valid_token():
+    """
+    Genera un token JWT válido para tests.
+    Payload incluye los claims requeridos: sub, roles, iss, aud, exp.
+    """
+    payload = {
+        "sub": "test@example.com",
+        "roles": ["USER_APP"],
+        "iss": TEST_JWT_ISSUER,
+        "aud": TEST_JWT_AUDIENCE,
+        "exp": 9999999999,  # Nunca expira para tests
+    }
+    return jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
+
+
+@pytest.fixture(autouse=True)
+def override_auth_dependency(mock_valid_token):
+    """
+    Override la dependencia de auth para tests.
+    Esto permite que los tests pasen sin necesidad de un token real.
+    """
+
+    def mock_get_current_user():
+        return jwt.decode(
+            mock_valid_token,
+            TEST_JWT_SECRET,
+            algorithms=["HS256"],
+            issuer=TEST_JWT_ISSUER,
+            audience=TEST_JWT_AUDIENCE,
+        )
+
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    yield
+    app.dependency_overrides.clear()
 
 
 def _cleanup():

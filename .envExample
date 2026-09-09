@@ -1,2 +1,19 @@
-# Renombra este archivo a .env y edítalo con el nombre de tu modelo
+# Renombra este archivo a .env y edítalo con las variables de entorno
+
+# ============================================
+# MODEL CONFIGURATION
+# ============================================
 MODEL_NAME=yolo-v9-t-256-license-plate-end2end
+
+# ============================================
+# JWT CONFIGURATION (Autenticación y Autorización)
+# ============================================
+# Clave HMAC para verificar firmas de tokens JWT
+# Debe coincidir con JWT_SECRET del servicio de Auth
+JWT_SECRET=tu_clave_secreta_para_jwt
+
+# Emisor válido del token (claim 'iss')
+JWT_ISSUER=issuer_para_jwt
+
+# Audiencia válida del token (claim 'aud')
+JWT_AUDIENCE=audience_para_jwt
