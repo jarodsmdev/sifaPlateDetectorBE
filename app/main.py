@@ -30,6 +30,7 @@ from app.schemas import PlateDetectionResponseSchema
 
 # Importar dependencia de autenticación y autorización por rol
 from app.auth import require_role
+from app.channel_guard import ChannelKeyMiddleware, channel_key_from_env, warn_if_disabled
 
 
 # Inicialización de la aplicación utilizando la configuración externa
@@ -39,6 +40,14 @@ app = FastAPI(
     description=API_DESCRIPTION,
     servers=API_SERVERS
 )
+
+# Guardia del canal interno: exige X-Internal-Key en cada petición que no venga
+# de loopback. Se registra ANTES que CORS porque en Starlette lo último que se
+# añade queda por fuera: así CORS sigue siendo el exterior y se encarga del
+# preflight, y este guardia solo ve las peticiones que sí llegan al backend.
+_channel_key = channel_key_from_env()
+warn_if_disabled(_channel_key)
+app.add_middleware(ChannelKeyMiddleware, channel_key=_channel_key)
 
 # Configuración de CORS
 app.add_middleware(

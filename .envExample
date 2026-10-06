@@ -17,3 +17,10 @@ JWT_ISSUER=issuer_para_jwt
 
 # Audiencia válida del token (claim 'aud')
 JWT_AUDIENCE=audience_para_jwt
+
+# ============================================
+# CANAL INTERNO
+# ============================================
+# Firma que el gateway adjunta en X-Internal-Key y que ChannelKeyMiddleware exige.
+# Idéntica en gateway, auth, core y plate. Vacío = guardia desactivada.
+INTERNAL_CHANNEL_KEY=clave_compartida_con_los_servicios
