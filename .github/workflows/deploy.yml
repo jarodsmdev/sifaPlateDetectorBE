@@ -28,6 +28,19 @@ jobs:
               | "\(.key)<<EOF\n\(.value)\nEOF"
             ' >> $GITHUB_ENV
 
+      # Falla rápido si faltan secretos en Doppler: el servicio no puede
+      # arrancar sin ellos (auth_config._require_env y ChannelKeyMiddleware).
+      - name: Verify required secrets
+        run: |
+          missing=0
+          for v in JWT_SECRET JWT_ISSUER JWT_AUDIENCE INTERNAL_CHANNEL_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Falta el secreto '$v' en Doppler"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ]
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -49,6 +62,12 @@ jobs:
           OPENBLAS_NUM_THREADS=2
           MKL_NUM_THREADS=2
           PYTHONUNBUFFERED=1
+
+          JWT_SECRET=${JWT_SECRET}
+          JWT_ISSUER=${JWT_ISSUER}
+          JWT_AUDIENCE=${JWT_AUDIENCE}
+          # Firma del canal interno exigida por ChannelKeyMiddleware
+          INTERNAL_CHANNEL_KEY=${INTERNAL_CHANNEL_KEY}
           EOF
 
       - name: Create SSH key
@@ -77,6 +96,8 @@ jobs:
 
               set -e
 
+              trap "rm -f /tmp/plate.env" EXIT
+
               echo "Pulling latest image..."
               docker pull jarodsm/sifa-plate:latest
 
@@ -87,18 +108,32 @@ jobs:
 
               docker run -d \
                 --name sifa-plate \
-                -p 80:8000 \
+                -p 10.0.2.20:80:8000 \
                 --restart unless-stopped \
                 -v /home/ubuntu/data:/data \
                 -v /home/ubuntu/paddle_cache:/root/.paddleocr \
                 -v /home/ubuntu/yolo_cache:/root/.cache/open-image-models \
                 --env-file /tmp/plate.env \
-                -e OMP_NUM_THREADS=2 \
-                -e OPENBLAS_NUM_THREADS=2 \
-                -e MKL_NUM_THREADS=2 \
                 jarodsm/sifa-plate:latest
 
-              echo "Deployment completed successfully."
+              echo "Verifying deployment..."
+              code=000
+              for i in $(seq 1 18); do
+                sleep 10
+                code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+                  http://10.0.2.20/ 2>/dev/null || true)
+                if [ -n "$code" ] && [ "$code" != "000" ]; then
+                  break
+                fi
+              done
+
+              if [ -z "$code" ] || [ "$code" = "000" ]; then
+                echo "::error::El servicio plate no responde en 10.0.2.20:80"
+                docker logs --tail 100 sifa-plate 2>&1 || true
+                exit 1
+              fi
+
+              echo "Plate responde con HTTP $code"
           EOF
 
       - name: Cleanup

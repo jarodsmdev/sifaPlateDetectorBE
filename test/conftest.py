@@ -48,7 +48,12 @@ sys.modules["app.ocr"] = MagicMock()
 
 # ──────────────────────────────────────────────
 # 4. Importar app.main DESPUÉS de configurar UPLOAD_DIR y mocks.
+#    Se desactiva antes la guardia del canal interno: los tests llaman al
+#    servicio como si fueran un cliente normal, sin pasar por el gateway.
+#    test_channel_guard.py la vuelve a activar para probarla.
 # ──────────────────────────────────────────────
+os.environ["INTERNAL_CHANNEL_KEY"] = ""
+
 from app.main import app  # noqa: E402
 from app.auth import get_current_user  # noqa: E402
 
