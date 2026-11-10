@@ -1,19 +1,19 @@
 """
 Punto de entrada principal de la API FastAPI para SIFA.
-Coordina la recepción de imágenes, la validación, la detección del modelo YOLO 
+Coordina la recepción de imágenes, la validación, la detección del modelo YOLO
 y la extracción de texto mediante PaddleOCR.
 """
 
 import asyncio
-import cv2
-import time
 import logging
+import time
+from datetime import datetime, timezone
+
+import cv2
+import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
-import shutil
-import uuid
-import os
-from datetime import datetime, timezone
+
 from app.services import process_image_pipeline
 
 # Configuración de logging: Usamos el logger de uvicorn para que nuestros
@@ -23,8 +23,8 @@ logger.setLevel(logging.INFO)
 
 # Importaciones de configuración y esquemas extraídos
 from app.config import (
-    API_TITLE, API_VERSION, API_DESCRIPTION, API_SERVERS, 
-    LOCAL_DEV_ORIGIN_REGEX, UPLOAD_DIR, MAX_FILE_SIZE
+    API_TITLE, API_VERSION, API_DESCRIPTION, API_SERVERS,
+    LOCAL_DEV_ORIGIN_REGEX, MAX_FILE_SIZE
 )
 from app.schemas import PlateDetectionResponseSchema
 
@@ -58,8 +58,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 @app.post(
     "/plate/api/v1/detect",
     response_model=PlateDetectionResponseSchema,
@@ -68,7 +66,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
     tags=["Procesamiento de Visión Artificial"],
     responses={
         status.HTTP_401_UNAUTHORIZED: {"description": "Token inválido o expirado."},
-        status.HTTP_400_BAD_REQUEST: {"description": "Formato de archivo inválido. Solo JPG/PNG."},
+        status.HTTP_400_BAD_REQUEST: {"description": "Formato o contenido de imagen inválido. Solo JPG/PNG."},
         status.HTTP_408_REQUEST_TIMEOUT: {"description": "El procesamiento excedió el tiempo máximo permitido (5 segundos)."},
         status.HTTP_413_CONTENT_TOO_LARGE: {"description": "El archivo excede el límite estructural de 5MB."},
         status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Error de validación: el campo 'file' no fue enviado o la petición no es multipart/form-data."}
@@ -100,68 +98,57 @@ async def detect(
     ):
     """
     Endpoint principal para detectar y leer patentes.
-    
+
     1. Recibe la imagen y valida su formato y tamaño.
-    2. Guarda la imagen temporalmente en el disco.
+    2. Decodifica la imagen en memoria, sin escribirla en disco.
     3. Delega el procesamiento pesado a un hilo secundario con un límite de 5 segundos.
-    4. Devuelve los resultados estructurados y elimina el archivo temporal.
+    4. Devuelve los resultados estructurados.
     """
 
     logger.info("---------------------------------")
-
-    # Generar un nombre único con fecha y hora para ordenar fácilmente el historial de fotos
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    random_id = uuid.uuid4().hex[:6]
-    filename = f"patente_{timestamp_str}_{random_id}.jpg"
-    
-    file_path = os.path.join(UPLOAD_DIR, filename)
 
     # Validación de formato
     if file.content_type not in ["image/jpeg", "image/png"]:
         logger.warning(f"Rechazado: Formato de archivo no soportado ({file.content_type}).")
         raise HTTPException(status_code=400, detail="Formato no soportado")
 
-    # Validar tamaño del archivo
-    contents = await file.read()
+    # Validar tamaño leyendo como máximo un byte extra
+    contents = await file.read(MAX_FILE_SIZE + 1)
     file_size_kb = len(contents) / 1024
     if len(contents) > MAX_FILE_SIZE:
         logger.warning(f"Rechazado: Archivo demasiado grande ({file_size_kb:.2f} KB).")
         raise HTTPException(status_code=413, detail="Archivo demasiado grande (máximo 5MB)")
 
-    logger.info(f"Petición aceptada: {filename} ({file_size_kb:.2f} KB).")
+    # Decodificar en memoria: evita persistir la captura y valida el contenido real
+    img = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        logger.warning("Rechazado: el contenido no es una imagen válida.")
+        raise HTTPException(status_code=400, detail="Imagen inválida o corrupta")
 
-    # Guardar archivo en disco para que los modelos de IA puedan procesarlo
-    with open(file_path, "wb") as buffer:
-        buffer.write(contents)
+    logger.info(f"Petición aceptada: {file.content_type} ({file_size_kb:.2f} KB).")
 
     start_time = time.time()
     try:
         # Enviar el trabajo pesado a otro hilo, quedando libre para recibir al segundo fiscalizador al instante.
         # Esperamos un máximo de 5.0 segundos por el procesamiento completo.
-        output = await asyncio.wait_for(asyncio.to_thread(process_image_pipeline, file_path), timeout=5.0)
-        
-        # 'output' es una lista de diccionarios, tomamos el primero
-        plate_str = output[0].get("plate") if output else "Ninguna"
-        
+        output = await asyncio.wait_for(
+            asyncio.to_thread(process_image_pipeline, img),
+            timeout=5.0,
+        )
+
         processing_time = time.time() - start_time
-        logger.info(f"Procesamiento exitoso para {filename} en {processing_time:.2f}s. Patente: {plate_str}.")
+        logger.info(f"Procesamiento exitoso en {processing_time:.2f}s. Detecciones: {len(output)}.")
     except asyncio.TimeoutError:
-        logger.error(f"Timeout al procesar {filename}. Tiempo excedió los 5 segundos.")
+        logger.error("Timeout al procesar la imagen. Tiempo excedió los 5 segundos.")
         raise HTTPException(status_code=status.HTTP_408_REQUEST_TIMEOUT, detail="El procesamiento de la imagen superó el tiempo límite de 5 segundos.")
-    except Exception as e:
-        logger.error(f"Error interno procesando {filename}: {str(e)}", exc_info=True)
-        # Capturamos otros errores (por ejemplo ValueError de la imagen)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error interno procesando imagen: {str(e)}")
-    finally:
-        # Limpieza: Asegurar eliminación de la foto del servidor para no llenar el disco,
-        # incluso si ocurre un timeout o error.
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except OSError:
-                pass # Evitar que falle silenciosamente si el archivo estaba bloqueado
+    except ValueError:
+        logger.warning("La imagen no tiene contenido procesable.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Imagen inválida o corrupta")
+    except Exception:
+        logger.exception("Error interno procesando la imagen.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno procesando imagen")
 
     # Agregar marca de tiempo en formato ISO 8601 (estándar UTC)
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")  # UTC en ISO 8601
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     return {"result": output, "timestamp": timestamp}

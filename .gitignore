@@ -1,7 +1,11 @@
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
-/data/imagenes_recibidas
+# Dataset local de validación: las imágenes reales no se versionan.
+# Solo se versiona data/README.md con la convención de nombres.
+/data/*.jpg
+/data/*.jpeg
+/data/*.png
 
 .env
 ### Python ###

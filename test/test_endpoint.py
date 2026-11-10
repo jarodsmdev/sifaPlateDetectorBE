@@ -3,24 +3,37 @@ import io
 from datetime import datetime
 from unittest.mock import patch
 
+import cv2
+import numpy as np
 from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.config import MAX_FILE_SIZE
 
 client = TestClient(app)
+
+
+def _jpeg_bytes():
+    """Genera un JPEG mínimo válido para las peticiones de prueba."""
+    ok, buffer = cv2.imencode(".jpg", np.zeros((8, 8, 3), dtype=np.uint8))
+    assert ok
+    return buffer.tobytes()
+
+
+SAMPLE_JPEG = _jpeg_bytes()
 
 SAMPLE_OUTPUT = [
     {
         "plate": "BBCC11",
         "success": True,
+        "plate_valid": True,
         "status": "OK",
-        "confidence": 0.9654,
+        "detection_confidence": 0.9654,
+        "ocr_confidence": 0.9123,
         "bbox": {"x1": 145, "y1": 320, "x2": 512, "y2": 410},
     }
 ]
-
-SAMPLE_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xdb\x00C\x01\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xc0\x00\x11\x08\x00\x01\x00\x01\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x15\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xc4\x00\x15\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00\xd2\x1a\x7f\xff\xd9"
 
 
 def _build_response(output):
@@ -61,8 +74,10 @@ def test_devuelve_200_con_varias_patentes():
         {
             "plate": "TZPW11",
             "success": True,
+            "plate_valid": True,
             "status": "OK",
-            "confidence": 0.8812,
+            "detection_confidence": 0.8812,
+            "ocr_confidence": 0.9001,
             "bbox": {"x1": 10, "y1": 20, "x2": 200, "y2": 80},
         }
     ]
@@ -77,3 +92,22 @@ def test_timestamp_formato_iso_utc():
     assert ts.endswith("Z")
     parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     assert parsed.tzinfo is not None
+
+
+def test_imagen_invalida_devuelve_400():
+    response = client.post(
+        "/plate/api/v1/detect",
+        files={"file": ("test.jpg", io.BytesIO(b"no soy una imagen"), "image/jpeg")},
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Imagen inválida o corrupta"
+
+
+def test_archivo_demasiado_grande_devuelve_413():
+    oversized = b"x" * (MAX_FILE_SIZE + 1)
+    response = client.post(
+        "/plate/api/v1/detect",
+        files={"file": ("test.jpg", io.BytesIO(oversized), "image/jpeg")},
+    )
+    assert response.status_code == status.HTTP_413_CONTENT_TOO_LARGE
+    assert "demasiado grande" in response.json()["detail"]

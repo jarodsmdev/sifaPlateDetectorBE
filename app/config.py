@@ -28,5 +28,4 @@ API_SERVERS = [
 LOCAL_DEV_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
 # Configuraciones de Sistema
-UPLOAD_DIR = "/data/imagenes_recibidas"
 MAX_FILE_SIZE = 5 * 1024 * 1024 # 5MB
