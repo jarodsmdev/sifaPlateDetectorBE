@@ -5,15 +5,19 @@ Servicio en FastAPI para detectar patentes vehiculares en imágenes y extraer su
 ## Qué hace este proyecto
 
 - Detecta patentes usando un modelo YOLO de `open-image-models`.
-- Recorta la zona detectada y aplica preprocesamiento de imagen.
-- Ejecuta OCR con Tesseract para obtener el texto final de la patente.
-- Expone un endpoint HTTP para integrarlo con otros sistemas.
+- Procesa la imagen en memoria (no guarda capturas en disco).
+- Ejecuta OCR con PaddleOCR sobre el recorte de cada patente.
+- Separa la confianza de detección (YOLO) de la confianza de lectura (OCR).
+- Valida el texto contra los formatos chilenos de autos y motos.
 
 ## Estructura principal
 
-- `app/main.py`: API FastAPI y endpoint `/detect`.
+- `app/main.py`: API FastAPI y endpoint `/plate/api/v1/detect`.
 - `app/model.py`: carga y ejecución del detector de patentes.
-- `app/ocr.py`: lógica de OCR y selección del mejor resultado.
+- `app/ocr.py`: ejecución de PaddleOCR y extracción de candidatos.
+- `app/plate_format.py`: normalización, formatos chilenos y selección del mejor candidato.
+- `app/services.py`: pipeline en memoria (redimensionar → YOLO → OCR).
+- `app/schemas.py`: contrato de respuesta.
 - `Dockerfile`: imagen de ejecución con dependencias del sistema.
 - `docker-compose.yml`: despliegue local en contenedor.
 
@@ -27,21 +31,18 @@ Servicio en FastAPI para detectar patentes vehiculares en imágenes y extraer su
 ### Opción local (sin Docker)
 
 - Python 3.10+
-- `tesseract-ocr` instalado en el sistema
 - Dependencias de Python (`requirements.txt`)
 
 ## Levantar con Docker (recomendado)
-
-1. Desde la carpeta del proyecto, construir y levantar:
 
 ```bash
 docker compose up --build
 ```
 
-1. El servicio quedará disponible en:
+El servicio quedará disponible en:
 
 ```text
-http://localhost:8001/detect
+http://localhost:8000/plate/api/v1/detect
 ```
 
 Para detener:
@@ -52,65 +53,29 @@ docker compose down
 
 ## Levantar en local (sin Docker)
 
-1. Crear y activar entorno virtual:
-
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-1. Instalar dependencias:
-
-```bash
 pip install -r requirements.txt
-```
-
-1. Instalar Tesseract en el sistema operativo (esto NO lo instala `pip`):
-
-Fedora:
-
-```bash
-sudo dnf install -y tesseract
-```
-
-Debian/Ubuntu:
-
-```bash
-sudo apt-get update && sudo apt-get install -y tesseract-ocr
-```
-
-Verificar instalacion:
-
-```bash
-tesseract --version
-```
-
-1. Ejecutar API:
-
-```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-Si `tesseract` no esta en tu `PATH`, puedes definirlo manualmente:
-
-```bash
-export TESSERACT_CMD=/usr/bin/tesseract
 ```
 
 ## Uso del endpoint
 
-### `POST /detect`
+### `POST /plate/api/v1/detect`
 
 Recibe una imagen (`jpg` o `png`) como `multipart/form-data`.
 
 - Tamaño máximo por archivo: 5 MB.
 - Tipos permitidos: `image/jpeg`, `image/png`.
+- Requiere un JWT con rol `USER_APP`.
 
 Ejemplo con `curl`:
 
 ```bash
-curl -X POST "http://localhost:8001/detect" \
+curl -X POST "http://localhost:8000/plate/api/v1/detect" \
   -H "accept: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: multipart/form-data" \
   -F "file=@/ruta/a/tu/imagen.jpg"
 ```
@@ -121,10 +86,12 @@ Respuesta esperada (ejemplo):
 {
   "result": [
     {
-      "plate": "ABCD12",
+      "plate": "BBCC11",
       "success": true,
+      "plate_valid": true,
       "status": "OK",
-      "confidence": 0.93,
+      "detection_confidence": 0.9654,
+      "ocr_confidence": 0.9123,
       "bbox": {
         "x1": 100,
         "y1": 220,
@@ -137,72 +104,87 @@ Respuesta esperada (ejemplo):
 }
 ```
 
+### Campos de cada detección
+
+| Campo | Descripción |
+|---|---|
+| `plate` | Texto leído por OCR (mejor esfuerzo). |
+| `success` | Igual a `plate_valid`; se mantiene por compatibilidad. |
+| `plate_valid` | `true` si `plate` calza con un formato chileno conocido. |
+| `status` | `OK`, `Formato de patente no reconocido` o error de OCR. |
+| `detection_confidence` | Confianza de YOLO al localizar el recuadro. |
+| `ocr_confidence` | Confianza de PaddleOCR para el texto elegido. |
+| `bbox` | Coordenadas del recuadro en la imagen procesada. |
+
 ## Códigos de error comunes
 
-- `400`: formato no soportado.
+- `400`: formato no soportado o contenido que no es una imagen válida.
+- `401`: token inválido o expirado.
+- `408`: el procesamiento superó el límite de 5 segundos.
 - `413`: archivo demasiado grande (máximo 5 MB).
+- `422`: falta el campo `file` o la petición no es multipart.
 
 ## Notas importantes
 
-- En el primer uso, el modelo de detección puede tardar más por carga/descarga inicial.
+- La captura se decodifica y procesa en memoria; no se escribe en `/data`.
+- En el primer uso, los modelos pueden tardar más por carga/descarga inicial.
 - La precisión del OCR depende de calidad, enfoque, iluminación y ángulo de la imagen.
-- El contenedor expone el puerto interno `8000` y lo publica en `8001` del host.
+- El contenedor expone el puerto interno `8000` y lo publica en `8000` del host.
 
-## Datos de prueba
+## Datos de prueba y evaluación
 
-Puedes guardar imágenes de prueba en la carpeta `data/` para evaluarlas o probar rápidamente con `curl`.
+Las imágenes de validación se guardan en `data/` y no se versionan. La convención
+de nombres está documentada en [`data/README.md`](data/README.md):
 
----
+```text
+<dia|noche>_[etiqueta...]_<PATENTE>.jpg
+```
 
 ## Pruebas y Evaluación de Métricas
 
-El proyecto cuenta con un entorno de pruebas unitarias (`pytest`) y un módulo de evaluación de métricas de precisión de la IA para presentar estadísticas en tiempo real.
-
-### Preparación del entorno local (Desde Cero)
-Antes de ejecutar cualquier prueba o script en tu máquina local, debes preparar tu entorno de desarrollo siguiendo estos pasos:
+### Preparación del entorno local
 
 ```bash
-# 1. Crear el entorno virtual (si no lo has creado antes)
 python -m venv .venv
-
-# 2. Activar el entorno virtual
-# En Windows (PowerShell):
-.venv\Scripts\Activate.ps1
-# En Linux/macOS o Git Bash:
-# source .venv/bin/activate
-
-# 3. Instalar las dependencias principales de la aplicación (Modelos de IA, YOLO, PaddleOCR, OpenCV, etc.)
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# 4. Instalar las dependencias adicionales para las pruebas y la evaluación de métricas
-pip install pytest pytest-cov httpx pillow
+pip install pytest pytest-cov httpx
 ```
 
+### Pruebas unitarias (`pytest`)
 
-### 1. Pruebas Unitarias y Cobertura (`pytest`)
-Ejecuta las pruebas unitarias automáticas (las cuales utilizan *mocks* para no requerir la descarga de los modelos pesados de IA y correr en milisegundos):
+Las pruebas usan *mocks* para no descargar los modelos pesados:
+
 ```bash
 pytest
 ```
-* **Ver reporte de cobertura**: Puedes abrir el reporte interactivo HTML generado en `htmlcov/index.html`. En Windows PowerShell puedes abrirlo ejecutando:
-  ```powershell
-  Start-Process "htmlcov/index.html"
-  ```
 
-### 2. Módulo de Evaluación de Precisión de la IA (Métricas)
-Este script procesa todas las imágenes en la carpeta `data/` utilizando los modelos de IA locales reales (YOLOv9 y PaddleOCR). Mide la exactitud de lectura y calcula estadísticas detalladas sobre los tiempos de respuesta del servidor (Media, Mediana y Moda).
+Para ver el reporte de cobertura:
 
-> [!IMPORTANT]
-> Para calcular la precisión del OCR, debes nombrar las imágenes dentro de `data/` con su patente real (ej: `ABCD12.jpg` o `ABCD12_auto.png`). Las imágenes con nombres genéricos se omitirán del cálculo de precisión.
-
-Para iniciar la evaluación:
 ```bash
+pytest --cov=app --cov-report=html
+```
+
+### Evaluación de precisión de la IA
+
+Procesa todas las imágenes de `data/` con los modelos reales y calcula métricas
+de detección, acierto OCR, validez de formato, confianzas y tiempos:
+
+```bash
+python test/evaluate_validation.py
+# alias histórico:
 python test/test_precision.py
 ```
 
-### 3. Pruebas de Carga y Simulación de Estrés
-Para simular peticiones simultáneas y paralelas de múltiples fiscalizadores interactuando con la API local:
+Para exigir que todos los nombres cumplan la convención:
+
 ```bash
-# Recuerda levantar primero el servidor local (ej: uvicorn app.main:app)
+python test/evaluate_validation.py --strict-tags
+```
+
+### Pruebas de carga
+
+```bash
+# Requiere el servidor local levantado
 python test/test_carga.py
 ```

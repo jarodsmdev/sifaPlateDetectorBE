@@ -1,9 +1,6 @@
-"""Configuración global de pytest: mockea módulos pesados y rutas del sistema."""
+"""Configuración global de pytest: mockea módulos pesados del sistema."""
 import os
 import sys
-import tempfile
-import atexit
-import shutil
 from unittest.mock import MagicMock
 
 import jwt
@@ -30,24 +27,14 @@ for mod_name in _MOCK_MODULES:
 sys.modules["open_image_models"].LicensePlateDetector = MagicMock()
 
 # ──────────────────────────────────────────────
-# 2. Redirigir UPLOAD_DIR a un directorio temporal
-#    IMPORTANTE: Esto debe ejecutarse ANTES de importar app.main,
-#    ya que app.main ejecuta os.makedirs(UPLOAD_DIR) a nivel de módulo.
-# ──────────────────────────────────────────────
-import app.config  # noqa: E402
-
-_UPLOAD_TMP = tempfile.mkdtemp(prefix="sifa_test_upload_")
-app.config.UPLOAD_DIR = _UPLOAD_TMP
-
-# ──────────────────────────────────────────────
-# 3. Mockear app.model y app.ocr para que app.services
-#    no intente importar los módulos reales pesados.
+# 2. Mockear app.model para no cargar el detector YOLO.
+#    app.ocr se deja real: PaddleOCR ya está mockeado arriba y así
+#    se puede probar la lógica de selección de candidatos.
 # ──────────────────────────────────────────────
 sys.modules["app.model"] = MagicMock()
-sys.modules["app.ocr"] = MagicMock()
 
 # ──────────────────────────────────────────────
-# 4. Importar app.main DESPUÉS de configurar UPLOAD_DIR y mocks.
+# 3. Importar app.main después de los mocks.
 #    Se desactiva antes la guardia del canal interno: los tests llaman al
 #    servicio como si fueran un cliente normal, sin pasar por el gateway.
 #    test_channel_guard.py la vuelve a activar para probarla.
@@ -58,7 +45,7 @@ from app.main import app  # noqa: E402
 from app.auth import get_current_user  # noqa: E402
 
 # ──────────────────────────────────────────────
-# 5. Configuración de JWT para tests
+# 4. Configuración de JWT para tests
 # ──────────────────────────────────────────────
 TEST_JWT_SECRET = "test-secret-key-for-unit-tests"
 TEST_JWT_ISSUER = "sifa-auth"
@@ -100,10 +87,3 @@ def override_auth_dependency(mock_valid_token):
     app.dependency_overrides[get_current_user] = mock_get_current_user
     yield
     app.dependency_overrides.clear()
-
-
-def _cleanup():
-    shutil.rmtree(_UPLOAD_TMP, ignore_errors=True)
-
-
-atexit.register(_cleanup)

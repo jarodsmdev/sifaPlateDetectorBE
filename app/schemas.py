@@ -12,9 +12,11 @@ class BBoxSchema(BaseModel):
 class DetectionItemSchema(BaseModel):
     """Representa los datos individuales de una patente detectada y procesada."""
     plate: str = Field(..., description="Texto alfanumérico de la patente extraído por el OCR", json_schema_extra={"example": "BBCC11"})
-    success: bool = Field(..., description="Indica si el motor OCR logró procesar y leer la patente correctamente", json_schema_extra={"example": True})
+    success: bool = Field(..., description="Indica si la patente es válida según los formatos chilenos (igual a plate_valid)", json_schema_extra={"example": True})
+    plate_valid: bool = Field(..., description="Indica si el texto calza con un formato de patente chilena", json_schema_extra={"example": True})
     status: str = Field(..., description="Mensaje de estado transaccional interno", json_schema_extra={"example": "OK"})
-    confidence: float = Field(..., description="Nivel de certeza del modelo YOLOv9 al localizar el recuadro", json_schema_extra={"example": 0.9654})
+    detection_confidence: float = Field(..., description="Nivel de certeza de YOLOv9 al localizar el recuadro", json_schema_extra={"example": 0.9654})
+    ocr_confidence: float = Field(..., description="Nivel de certeza de PaddleOCR para el texto elegido", json_schema_extra={"example": 0.9123})
     bbox: BBoxSchema = Field(..., description="Coordenadas geométricas de la patente")
 
 class PlateDetectionResponseSchema(BaseModel):
