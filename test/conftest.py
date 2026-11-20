@@ -44,6 +44,8 @@ os.environ["INTERNAL_CHANNEL_KEY"] = ""
 from app.main import app  # noqa: E402
 from app.auth import get_current_user  # noqa: E402
 
+from fastapi.testclient import TestClient  # noqa: E402
+
 # ──────────────────────────────────────────────
 # 4. Configuración de JWT para tests
 # ──────────────────────────────────────────────
@@ -87,3 +89,10 @@ def override_auth_dependency(mock_valid_token):
     app.dependency_overrides[get_current_user] = mock_get_current_user
     yield
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client():
+    """Cliente con lifespan activo (arranca y detiene el pool de trabajos)."""
+    with TestClient(app) as test_client:
+        yield test_client

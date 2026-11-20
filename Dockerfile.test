@@ -1,0 +1,21 @@
+# Entorno mínimo para pruebas unitarias.
+# No instala PaddleOCR, PaddlePaddle ni open-image-models: test/conftest.py los
+# reemplaza por mocks. Usa Python 3.10 para respetar los hashes del lockfile.
+FROM python:3.10-slim@sha256:6ff506466f8b1e981719b468cc0023b8ef000b983cdec0eafe119d01f379e31d
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-dev.txt .
+
+RUN pip install --no-cache-dir --require-hashes -r requirements-dev.txt
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV HOME=/tmp
+
+CMD ["python", "-m", "pytest"]

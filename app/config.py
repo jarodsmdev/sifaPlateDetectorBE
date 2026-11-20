@@ -29,3 +29,8 @@ LOCAL_DEV_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
 # Configuraciones de Sistema
 MAX_FILE_SIZE = 5 * 1024 * 1024 # 5MB
+
+# Límites del pool de procesamiento (ver app/jobs.py)
+PLATE_MAX_CONCURRENCY = max(1, int(os.getenv("PLATE_MAX_CONCURRENCY", "1")))
+PLATE_MAX_QUEUE = max(1, int(os.getenv("PLATE_MAX_QUEUE", "8")))
+PLATE_TIMEOUT_S = float(os.getenv("PLATE_TIMEOUT_S", "5.0"))

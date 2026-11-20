@@ -1,6 +1,10 @@
 services:
   plate-api:
-    build: .
+    build:
+      context: .
+      args:
+        PLATE_MODELS_URL: ${PLATE_MODELS_URL:-https://github.com/jarodsmdev/sifaPlateDetectorBE/releases/download/models-v1/plate-models-v1.tar.gz}
+        PLATE_MODELS_SHA256: ${PLATE_MODELS_SHA256:-7814edec45d8cb2b7a38e92639f82ff336bafc4f6f9c9494cd5fc621982dbca6}
     container_name: plate-api
     ports:
       # Publicado solo en loopback: en producción el tráfico llega por la IP
@@ -8,14 +12,16 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/data
-      - ./paddle_cache:/root/.paddleocr
-      - ./yolo_cache:/root/.cache/open-image-models
     environment:
       - PYTHONUNBUFFERED=1
       # Límites de concurrencia para evitar estrangular la CPU en la instancia EC2
       - OMP_NUM_THREADS=2
       - OPENBLAS_NUM_THREADS=2
       - MKL_NUM_THREADS=2
+      # Pool de trabajos (ver app/jobs.py)
+      - PLATE_MAX_CONCURRENCY=${PLATE_MAX_CONCURRENCY:-1}
+      - PLATE_MAX_QUEUE=${PLATE_MAX_QUEUE:-8}
+      - PLATE_TIMEOUT_S=${PLATE_TIMEOUT_S:-5.0}
       # JWT Configuration - autenticación y autorización
       - JWT_SECRET=${JWT_SECRET}
       - JWT_ISSUER=${JWT_ISSUER}

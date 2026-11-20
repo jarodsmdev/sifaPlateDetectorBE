@@ -19,6 +19,7 @@ Servicio en FastAPI para detectar patentes vehiculares en imágenes y extraer su
 - `app/services.py`: pipeline en memoria (redimensionar → YOLO → OCR).
 - `app/schemas.py`: contrato de respuesta.
 - `Dockerfile`: imagen de ejecución con dependencias del sistema.
+- `Dockerfile.test`: imagen mínima para pruebas unitarias (sin Paddle/YOLO).
 - `docker-compose.yml`: despliegue local en contenedor.
 
 ## Requisitos
@@ -30,14 +31,21 @@ Servicio en FastAPI para detectar patentes vehiculares en imágenes y extraer su
 
 ### Opción local (sin Docker)
 
-- Python 3.10+
-- Dependencias de Python (`requirements.txt`)
+- Python 3.10 exacto (el lockfile y sus hashes se generaron con 3.10)
+- Dependencias de Python instaladas desde el lockfile (`requirements.txt`)
+
+Para ejecutar solo las pruebas unitarias **no necesitas Python en el host**:
+usa la imagen de `Dockerfile.test` (ver más abajo).
 
 ## Levantar con Docker (recomendado)
 
 ```bash
 docker compose up --build
 ```
+
+La imagen incluye los modelos de IA. El primer build (o uno sin caché de capas)
+descarga el artefacto versionado desde GitHub y verifica su SHA256; requiere
+conexión a internet, igual que la instalación de dependencias.
 
 El servicio quedará disponible en:
 
@@ -53,12 +61,72 @@ docker compose down
 
 ## Levantar en local (sin Docker)
 
+Requiere `python3.10` instalado. En Ubuntu no existe el comando `python` por
+defecto; usa `python3.10` explícitamente.
+
 ```bash
-python3 -m venv .venv
+python3.10 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+Si el `.venv` fue creado con otra versión de Python (por ejemplo 3.12 o 3.14),
+bórralo y vuelve a crearlo con `python3.10`; los paquetes y hashes del lock no
+son compatibles con otras versiones.
+
+### Modelos de IA en local
+
+Los modelos se instalan en `~/.paddleocr` y `~/.cache/open-image-models`. Para
+obtenerlos sin construir la imagen:
+
+```bash
+export PLATE_MODELS_URL="https://github.com/jarodsmdev/sifaPlateDetectorBE/releases/download/models-v1/plate-models-v1.tar.gz"
+export PLATE_MODELS_SHA256="7814edec45d8cb2b7a38e92639f82ff336bafc4f6f9c9494cd5fc621982dbca6"
+./scripts/fetch_models.sh
+```
+
+El script descarga el artefacto indicado por `PLATE_MODELS_URL`, verifica
+`PLATE_MODELS_SHA256` y lo deja en esas rutas. Es idempotente: si la versión ya
+está instalada, no descarga de nuevo. En Docker, este paso ocurre durante el
+build. También se pueden usar `PADDLE_CACHE_DIR` y `YOLO_CACHE_DIR` para
+instalarlos dentro del proyecto.
+
+Para actualizar los modelos: publicar un release nuevo en GitHub (nunca
+sobrescribir el anterior), actualizar `PLATE_MODELS_URL` y
+`PLATE_MODELS_SHA256` en `Dockerfile`/`.envExample`, y reconstruir la imagen.
+El detalle completo está en
+[`docu/IMPLEMENTACION_POOL_MODELOS_RELEASE.md`](docu/IMPLEMENTACION_POOL_MODELOS_RELEASE.md).
+
+## Lockfile y dependencias
+
+`requirements.in` contiene las dependencias directas con versión exacta.
+`requirements.txt` es el lockfile generado (todas las dependencias, con hashes)
+y **no se edita a mano**.
+
+`requirements-dev.in` y `requirements-dev.txt` son el lockfile de las pruebas
+unitarias: incluyen el runtime mínimo para importar la app y `pytest`, `httpx` y
+`requests`. No incluyen PaddleOCR, PaddlePaddle ni open-image-models porque
+`test/conftest.py` los reemplaza por mocks.
+
+Regenerar ambos locks con Python 3.10 / Linux x86_64 (vía Docker, sin instalar
+nada en el host):
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \
+  -v "$PWD":/w -w /w python:3.10-slim bash -c '
+    python -m venv /tmp/venv &&
+    /tmp/venv/bin/pip install pip-tools==7.7.0 &&
+    /tmp/venv/bin/pip-compile --generate-hashes \
+      --output-file requirements.txt requirements.in &&
+    /tmp/venv/bin/pip-compile --generate-hashes \
+      --constraint requirements.txt \
+      --output-file requirements-dev.txt requirements-dev.in
+  '
+```
+
+Las instalaciones usan `--require-hashes`: si un paquete no coincide con el hash
+esperado, la instalación falla.
 
 ## Uso del endpoint
 
@@ -123,11 +191,16 @@ Respuesta esperada (ejemplo):
 - `408`: el procesamiento superó el límite de 5 segundos.
 - `413`: archivo demasiado grande (máximo 5 MB).
 - `422`: falta el campo `file` o la petición no es multipart.
+- `503`: el servicio está saturado (pool y cola llenos). Reintentar según `Retry-After`.
 
 ## Notas importantes
 
 - La captura se decodifica y procesa en memoria; no se escribe en `/data`.
-- En el primer uso, los modelos pueden tardar más por carga/descarga inicial.
+- Los modelos vienen dentro de la imagen Docker; no se montan volúmenes de caché.
+- El endpoint procesa como máximo `PLATE_MAX_CONCURRENCY` imágenes a la vez y
+  encola hasta `PLATE_MAX_QUEUE`. Al saturarse responde `503`.
+- Al vencer `PLATE_TIMEOUT_S`, el trabajo se cancela en el próximo punto de
+  control (entre etapas), no a mitad de una inferencia.
 - La precisión del OCR depende de calidad, enfoque, iluminación y ángulo de la imagen.
 - El contenedor expone el puerto interno `8000` y lo publica en `8000` del host.
 
@@ -142,49 +215,63 @@ de nombres está documentada en [`data/README.md`](data/README.md):
 
 ## Pruebas y Evaluación de Métricas
 
-### Preparación del entorno local
+### Preparación del entorno de pruebas (Docker)
+
+La imagen de pruebas instala solo `requirements-dev.txt`: runtime mínimo para
+importar la app y las herramientas de test. No instala PaddleOCR ni YOLO, y no
+necesita los modelos ni un Python local. Los hashes del lock son para Linux
+x86_64.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install pytest pytest-cov httpx
+docker build -f Dockerfile.test -t sifa-plate-tests .
 ```
 
 ### Pruebas unitarias (`pytest`)
 
-Las pruebas usan *mocks* para no descargar los modelos pesados:
+Las pruebas usan *mocks* para no cargar los modelos pesados. El montaje del
+código permite editar tests sin reconstruir la imagen:
 
 ```bash
-pytest
+docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -v "$PWD":/app -w /app sifa-plate-tests
 ```
 
+Son 39 pruebas y no requieren conexión a internet ni el artefacto de modelos.
 Para ver el reporte de cobertura:
 
 ```bash
-pytest --cov=app --cov-report=html
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -v "$PWD":/app -w /app sifa-plate-tests \
+  python -m pytest --cov=app --cov-report=term-missing --cov-report=html
 ```
 
 ### Evaluación de precisión de la IA
 
 Procesa todas las imágenes de `data/` con los modelos reales y calcula métricas
-de detección, acierto OCR, validez de formato, confianzas y tiempos:
+de detección, acierto OCR, validez de formato, confianzas y tiempos. Requiere el
+runtime completo y los modelos, no la imagen `sifa-plate-tests`. Con la imagen de
+la app ya construida:
 
 ```bash
-python test/evaluate_validation.py
+docker compose run --rm -v "$PWD":/app plate-api \
+  python test/evaluate_validation.py
 # alias histórico:
-python test/test_precision.py
+docker compose run --rm -v "$PWD":/app plate-api \
+  python test/test_precision.py
 ```
 
 Para exigir que todos los nombres cumplan la convención:
 
 ```bash
-python test/evaluate_validation.py --strict-tags
+docker compose run --rm -v "$PWD":/app plate-api \
+  python test/evaluate_validation.py --strict-tags
 ```
 
 ### Pruebas de carga
 
+Requiere el servidor local levantado y, en Linux, usa la red del host:
+
 ```bash
-# Requiere el servidor local levantado
-python test/test_carga.py
+docker run --rm --network host -v "$PWD":/app -w /app \
+  sifa-plate-tests python test/test_carga.py
 ```

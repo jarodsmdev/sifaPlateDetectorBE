@@ -1,0 +1,22 @@
+# Dependencias mínimas para ejecutar las pruebas unitarias sin modelos reales.
+# Los tests mockean PaddleOCR y open-image-models (ver test/conftest.py), por eso
+# no se instalan aquí paddlepaddle, paddleocr ni open-image-models.
+# Regenerar con:
+#   pip-compile --generate-hashes --constraint requirements.txt \
+#       requirements-dev.in --output-file requirements-dev.txt
+
+-c requirements.txt
+
+# Runtime necesario para importar app.main y el TestClient
+fastapi==0.137.1
+python-multipart==0.0.32
+PyJWT[crypto]==2.13.0
+python-dotenv==1.2.2
+opencv-python-headless==4.6.0.66
+numpy==1.26.4
+
+# Pruebas
+pytest==9.1.0
+pytest-cov==7.1.0
+httpx==0.28.1
+requests==2.34.2

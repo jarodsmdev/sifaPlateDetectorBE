@@ -1,0 +1,22 @@
+# Dependencias directas de la aplicación.
+# Editar este archivo y regenerar requirements.txt con pip-compile.
+# Ver README.md, sección "Lockfile y dependencias".
+
+fastapi==0.137.1
+uvicorn[standard]==0.49.0
+python-multipart==0.0.32
+
+# JWT
+PyJWT[crypto]==2.13.0
+
+# Variables de entorno
+python-dotenv==1.2.2
+
+# Modelos de IA
+open-image-models[onnx]==0.5.1
+paddlepaddle==2.6.2
+paddleocr==2.7.3
+
+# OpenCV: paddleocr 2.7.3 exige <=4.6.0.66 y open-image-models usa headless.
+opencv-python-headless==4.6.0.66
+numpy==1.26.4
