@@ -14,13 +14,27 @@ from app.ocr import read_plate
 logger = logging.getLogger("sifa.services")
 
 
-def process_image_pipeline(img: np.ndarray):
+class PipelineCancelled(Exception):
+    """Se lanza cuando el trabajo fue cancelado por timeout."""
+
+
+def _ensure_not_cancelled(cancel):
+    if cancel is not None and cancel.is_set():
+        raise PipelineCancelled()
+
+
+def process_image_pipeline(img: np.ndarray, cancel=None):
     """
     Pipeline completo en memoria:
     1. Redimensiona la imagen si supera FullHD.
     2. Detecta patentes usando YOLO.
     3. Extrae texto y valida el formato de cada patente usando PaddleOCR.
+
+    ``cancel`` es un ``threading.Event`` opcional. Se revisa entre etapas para
+    detener el trabajo cuando el endpoint ya respondió por timeout.
     """
+    _ensure_not_cancelled(cancel)
+
     if img is None or getattr(img, "size", 0) == 0:
         logger.error("Fallo al procesar una imagen vacía.")
         raise ValueError("No se pudo cargar la imagen")
@@ -35,6 +49,8 @@ def process_image_pipeline(img: np.ndarray):
         nuevo_alto = int(alto * escala)
         img = cv2.resize(img, (nuevo_ancho, nuevo_alto), interpolation=cv2.INTER_AREA)
 
+    _ensure_not_cancelled(cancel)
+
     # Procesar detecciones (obtener coordenadas con YOLO)
     detections = detect_plate(img)
     output_data = []
@@ -42,6 +58,8 @@ def process_image_pipeline(img: np.ndarray):
 
     # Iterar sobre cada patente encontrada en la foto (pueden ser varias)
     for det in detections:
+        _ensure_not_cancelled(cancel)
+
         bbox = {
             "x1": int(det.bounding_box.x1),
             "y1": int(det.bounding_box.y1),

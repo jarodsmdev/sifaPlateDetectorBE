@@ -6,12 +6,8 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 from fastapi import status
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.config import MAX_FILE_SIZE
-
-client = TestClient(app)
 
 
 def _jpeg_bytes():
@@ -36,12 +32,12 @@ SAMPLE_OUTPUT = [
 ]
 
 
-def _build_response(output):
+def _build_response(client, output):
     """
     Helper que construye una request al endpoint con un token JWT válido.
     El token se genera automáticamente via conftest.py (mock_valid_token).
     """
-    with patch("app.main.process_image_pipeline", return_value=output):
+    with patch("app.jobs.process_image_pipeline", return_value=output):
         # No necesitamos header Authorization porque el mock sobreescribe
         # la dependencia de autenticación en conftest.py
         return client.post(
@@ -50,16 +46,16 @@ def _build_response(output):
         )
 
 
-def test_devuelve_200_con_lista_vacia():
-    response = _build_response([])
+def test_devuelve_200_con_lista_vacia(client):
+    response = _build_response(client, [])
     assert response.status_code == status.HTTP_200_OK
     body = response.json()
     assert body["result"] == []
     assert "timestamp" in body
 
 
-def test_devuelve_200_con_una_patente():
-    response = _build_response(SAMPLE_OUTPUT)
+def test_devuelve_200_con_una_patente(client):
+    response = _build_response(client, SAMPLE_OUTPUT)
     assert response.status_code == status.HTTP_200_OK
     body = response.json()
 
@@ -69,7 +65,7 @@ def test_devuelve_200_con_una_patente():
     datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
 
-def test_devuelve_200_con_varias_patentes():
+def test_devuelve_200_con_varias_patentes(client):
     multiples = SAMPLE_OUTPUT + [
         {
             "plate": "TZPW11",
@@ -81,20 +77,20 @@ def test_devuelve_200_con_varias_patentes():
             "bbox": {"x1": 10, "y1": 20, "x2": 200, "y2": 80},
         }
     ]
-    response = _build_response(multiples)
+    response = _build_response(client, multiples)
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["result"] == multiples
 
 
-def test_timestamp_formato_iso_utc():
-    response = _build_response(SAMPLE_OUTPUT)
+def test_timestamp_formato_iso_utc(client):
+    response = _build_response(client, SAMPLE_OUTPUT)
     ts = response.json()["timestamp"]
     assert ts.endswith("Z")
     parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     assert parsed.tzinfo is not None
 
 
-def test_imagen_invalida_devuelve_400():
+def test_imagen_invalida_devuelve_400(client):
     response = client.post(
         "/plate/api/v1/detect",
         files={"file": ("test.jpg", io.BytesIO(b"no soy una imagen"), "image/jpeg")},
@@ -103,7 +99,7 @@ def test_imagen_invalida_devuelve_400():
     assert response.json()["detail"] == "Imagen inválida o corrupta"
 
 
-def test_archivo_demasiado_grande_devuelve_413():
+def test_archivo_demasiado_grande_devuelve_413(client):
     oversized = b"x" * (MAX_FILE_SIZE + 1)
     response = client.post(
         "/plate/api/v1/detect",

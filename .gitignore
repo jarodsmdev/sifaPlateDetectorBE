@@ -7,6 +7,11 @@
 /data/*.jpeg
 /data/*.png
 
+# Modelos de IA: se descargan del release versionado, no se versionan.
+/paddle_cache/
+/yolo_cache/
+/plate-models-*.tar.gz
+
 .env
 ### Python ###
 # Byte-compiled / optimized / DLL files

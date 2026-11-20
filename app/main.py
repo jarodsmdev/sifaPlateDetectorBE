@@ -7,6 +7,7 @@ y la extracción de texto mediante PaddleOCR.
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import cv2
@@ -14,7 +15,7 @@ import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.services import process_image_pipeline
+from app.jobs import PlateJobRunner, QueueFullError
 
 # Configuración de logging: Usamos el logger de uvicorn para que nuestros
 # mensajes se impriman junto con los logs de acceso por defecto del servidor.
@@ -24,7 +25,8 @@ logger.setLevel(logging.INFO)
 # Importaciones de configuración y esquemas extraídos
 from app.config import (
     API_TITLE, API_VERSION, API_DESCRIPTION, API_SERVERS,
-    LOCAL_DEV_ORIGIN_REGEX, MAX_FILE_SIZE
+    LOCAL_DEV_ORIGIN_REGEX, MAX_FILE_SIZE,
+    PLATE_MAX_CONCURRENCY, PLATE_MAX_QUEUE, PLATE_TIMEOUT_S,
 )
 from app.schemas import PlateDetectionResponseSchema
 
@@ -33,12 +35,26 @@ from app.auth import require_role
 from app.channel_guard import ChannelKeyMiddleware, channel_key_from_env, warn_if_disabled
 
 
+# Pool acotado: N trabajadores y una cola máxima de trabajos esperando.
+runner = PlateJobRunner(PLATE_MAX_CONCURRENCY, PLATE_MAX_QUEUE)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await runner.start()
+    try:
+        yield
+    finally:
+        await runner.stop()
+
+
 # Inicialización de la aplicación utilizando la configuración externa
 app = FastAPI(
     title=API_TITLE,
     version=API_VERSION,
     description=API_DESCRIPTION,
-    servers=API_SERVERS
+    servers=API_SERVERS,
+    lifespan=lifespan,
 )
 
 # Guardia del canal interno: exige X-Internal-Key en cada petición que no venga
@@ -69,7 +85,8 @@ app.add_middleware(
         status.HTTP_400_BAD_REQUEST: {"description": "Formato o contenido de imagen inválido. Solo JPG/PNG."},
         status.HTTP_408_REQUEST_TIMEOUT: {"description": "El procesamiento excedió el tiempo máximo permitido (5 segundos)."},
         status.HTTP_413_CONTENT_TOO_LARGE: {"description": "El archivo excede el límite estructural de 5MB."},
-        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Error de validación: el campo 'file' no fue enviado o la petición no es multipart/form-data."}
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Error de validación: el campo 'file' no fue enviado o la petición no es multipart/form-data."},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "El servicio está saturado; reintentar según el header Retry-After."}
     },
     openapi_extra={
         "requestBody": {
@@ -101,7 +118,7 @@ async def detect(
 
     1. Recibe la imagen y valida su formato y tamaño.
     2. Decodifica la imagen en memoria, sin escribirla en disco.
-    3. Delega el procesamiento pesado a un hilo secundario con un límite de 5 segundos.
+    3. Encola el trabajo en un pool acotado y espera hasta 5 segundos.
     4. Devuelve los resultados estructurados.
     """
 
@@ -129,17 +146,30 @@ async def detect(
 
     start_time = time.time()
     try:
-        # Enviar el trabajo pesado a otro hilo, quedando libre para recibir al segundo fiscalizador al instante.
-        # Esperamos un máximo de 5.0 segundos por el procesamiento completo.
+        job = await runner.submit(img)
+    except QueueFullError:
+        logger.warning("Cola de procesamiento llena; se rechaza la petición.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servicio saturado, reintente en unos segundos",
+            headers={"Retry-After": "2"},
+        )
+
+    try:
+        # El timeout no mata el hilo: al vencer se activa el evento de
+        # cancelación y el pipeline se detiene en el próximo punto de control.
         output = await asyncio.wait_for(
-            asyncio.to_thread(process_image_pipeline, img),
-            timeout=5.0,
+            asyncio.shield(job.future),
+            timeout=PLATE_TIMEOUT_S,
         )
 
         processing_time = time.time() - start_time
         logger.info(f"Procesamiento exitoso en {processing_time:.2f}s. Detecciones: {len(output)}.")
     except asyncio.TimeoutError:
-        logger.error("Timeout al procesar la imagen. Tiempo excedió los 5 segundos.")
+        job.cancel.set()
+        logger.error(
+            f"Timeout al procesar la imagen. Tiempo excedió los {PLATE_TIMEOUT_S} segundos."
+        )
         raise HTTPException(status_code=status.HTTP_408_REQUEST_TIMEOUT, detail="El procesamiento de la imagen superó el tiempo límite de 5 segundos.")
     except ValueError:
         logger.warning("La imagen no tiene contenido procesable.")

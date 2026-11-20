@@ -11,7 +11,11 @@ __pycache__/
 # Ignorar las carpetas mapeadas en los volúmenes
 data/
 paddle_cache/
+yolo_cache/
 .paddleocr/
+
+# El artefacto de modelos se descarga durante el build, no viaja en el contexto
+plate-models-*.tar.gz
 
 # Ignorar archivos de IDE
 .idea/
